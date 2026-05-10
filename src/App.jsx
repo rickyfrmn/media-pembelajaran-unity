@@ -268,13 +268,14 @@ function splitScriptLine(line) {
   return result;
 }
 
-const RUNNER_TRACK_WIDTH = 1200;
+const RUNNER_TRACK_WIDTH = 2400;
 const RUNNER_PLAYER_X = -155;
+const RUNNER_GRACE_MS = 5000;
 
 const runnerObstacles = [
-  { id: 1, start: 700 },
-  { id: 2, start: 930 },
-  { id: 3, start: 1130 }
+  { id: 1, start: 445 },
+  { id: 2, start: 645 },
+  { id: 3, start: 845 }
 ];
 
 function getRunnerObstacleX(start, distance) {
@@ -303,6 +304,8 @@ export default function App() {
   const [isRunning, setIsRunning] = useState(false);
   const [practiceMessage, setPracticeMessage] = useState("Selesaikan semua soal Level 3 untuk membuka mode lari.");
   const savedRef = useRef(false);
+  const graceUntilRef = useRef(0);
+  const isJumpingRef = useRef(false);
 
   const questions = questionSets[mode][selectedLevel];
   const currentQuestion = questions[questionIndex];
@@ -355,26 +358,49 @@ export default function App() {
   useEffect(() => {
     if (screen !== "game" || selectedLevel !== 3 || !level3PracticeUnlocked || !isRunning) return;
 
+    let stopped = false;
+
     const runner = setInterval(() => {
-      setRunnerDistance((prev) => prev + 6);
-      setCharacterAction("move");
+      if (stopped) return;
+
+      let didHit = false;
+
+      setRunnerDistance((prev) => {
+        const nextDist = prev + 6;
+
+        const now = Date.now();
+        if (now < graceUntilRef.current || isJumpingRef.current) {
+          return nextDist;
+        }
+
+        const hit = runnerObstacles.some(
+          (obs) => Math.abs(getRunnerObstacleX(obs.start, nextDist) - RUNNER_PLAYER_X) < 30
+        );
+
+        if (hit) {
+          didHit = true;
+          stopped = true;
+          return nextDist + 80;
+        }
+
+        return nextDist;
+      });
+
+      if (didHit) {
+        setIsRunning(false);
+        setCharacterAction("wrong");
+        setPracticeMessage("Terkena rintangan. Tekan Jump lebih awal, lalu tekan tombol kanan untuk lanjut berlari.");
+        setTimeout(() => setCharacterAction("idle"), 600);
+      } else if (!stopped) {
+        setCharacterAction("move");
+      }
     }, 50);
 
-    return () => clearInterval(runner);
+    return () => {
+      stopped = true;
+      clearInterval(runner);
+    };
   }, [screen, selectedLevel, level3PracticeUnlocked, isRunning]);
-
-  useEffect(() => {
-    if (screen !== "game" || selectedLevel !== 3 || !level3PracticeUnlocked || !isRunning || isJumping) return;
-
-    const hitObstacle = runnerObstacles.some((obs) => Math.abs(getRunnerObstacleX(obs.start, runnerDistance) - RUNNER_PLAYER_X) < 34);
-
-    if (hitObstacle) {
-      setIsRunning(false);
-      setCharacterAction("wrong");
-      setPracticeMessage("Terkena rintangan. Tekan Jump lebih awal, lalu tekan tombol kanan untuk lanjut berlari.");
-      setTimeout(() => setCharacterAction("idle"), 600);
-    }
-  }, [runnerDistance, screen, selectedLevel, level3PracticeUnlocked, isRunning, isJumping]);
 
   useEffect(() => {
     setFilled(Array(currentQuestion.blanks).fill(null));
@@ -408,6 +434,7 @@ export default function App() {
     setLevel3PracticeUnlocked(false);
     setRunnerDistance(0);
     setIsRunning(false);
+    graceUntilRef.current = 0;
     setPracticeMessage(selectedLevel === 3 ? "Selesaikan semua soal Level 3 untuk membuka mode lari." : "Karakter bergerak setelah script benar.");
     setScreen("game");
     setFeedback("");
@@ -432,6 +459,7 @@ export default function App() {
     setLevel3PracticeUnlocked(false);
     setRunnerDistance(0);
     setIsRunning(false);
+    graceUntilRef.current = 0;
     setPracticeMessage("Selesaikan semua soal Level 3 untuk membuka mode lari.");
   }
 
@@ -494,6 +522,7 @@ export default function App() {
         if (selectedLevel === 3) {
           setLevel3PracticeUnlocked(true);
           setRunnerDistance(0);
+          graceUntilRef.current = Date.now() + RUNNER_GRACE_MS;
           setIsRunning(true);
           setPracticeMessage("Mode lari aktif. Karakter terus berlari ke kanan. Tekan Jump untuk melewati rintangan.");
           setFeedback("Selamat. Semua soal selesai. Skor sudah disimpan. Mode lari Level 3 sekarang terbuka.");
@@ -521,7 +550,7 @@ export default function App() {
 
     if (dx > 0) {
       setIsRunning(true);
-      setRunnerDistance((prev) => prev + 45);
+      graceUntilRef.current = Date.now() + RUNNER_GRACE_MS;
       setCharacterAction("move");
       setPracticeMessage("Karakter berlari ke kanan. Tekan Jump sebelum rintangan menyentuh karakter.");
     } else if (dx < 0) {
@@ -540,6 +569,7 @@ export default function App() {
   function resetRunner() {
     if (selectedLevel !== 3 || !level3PracticeUnlocked) return;
     setRunnerDistance(0);
+    graceUntilRef.current = Date.now() + RUNNER_GRACE_MS;
     setIsRunning(true);
     setCharacterAction("move");
     setPracticeMessage("Mode lari diulang dari awal. Karakter mulai berlari lagi.");
@@ -554,11 +584,11 @@ export default function App() {
     }
 
     setIsJumping(true);
-    setCharacterAction("jump");
+    isJumpingRef.current = true;
     setPracticeMessage("Karakter melompat. Gunakan timing yang tepat untuk melewati rintangan.");
     setTimeout(() => {
       setIsJumping(false);
-      setCharacterAction(isRunning ? "move" : "idle");
+      isJumpingRef.current = false;
     }, 700);
   }
 
